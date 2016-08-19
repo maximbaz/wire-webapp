@@ -86,6 +86,8 @@ class z.calling.entities.Flow
     @audio_stream = @call_et.local_audio_stream
     @video_stream = @call_et.local_video_stream
 
+    @data_channels = {}
+
     @has_media_stream = ko.pureComputed => return @video_stream()? or @audio_stream()?
 
     @connection_state = ko.observable z.calling.rtc.ICEConnectionState.NEW
@@ -355,6 +357,7 @@ class z.calling.entities.Flow
 
     @peer_connection.onaddstream = @_on_add_stream
     @peer_connection.onaddtrack = @_on_add_track
+    @peer_connection.ondatachannel = @_on_data_channel
     @peer_connection.onicecandidate = @_on_ice_candidate
     @peer_connection.oniceconnectionstatechange = @_on_ice_connection_state_change
     @peer_connection.onnegotiationneeded = @_on_negotiation_needed
@@ -443,6 +446,45 @@ class z.calling.entities.Flow
 
 
   ###############################################################################
+  # Data channel handling
+  ###############################################################################
+
+  _initialize_data_channel: (data_channel_label) ->
+    if @peer_connection.createDataChannel and not @data_channels[data_channel_label]
+      @_setup_data_channel @peer_connection.createDataChannel data_channel_label, {ordered: true}
+
+  _setup_data_channel: (data_channel) ->
+    if not @data_channels[data_channel.label]
+      @data_channels[data_channel.label] = data_channel
+      data_channel.onclose = @_on_close
+      data_channel.onerror = @_on_error
+      data_channel.onmessage = @_on_message
+      data_channel.onopen = @_on_open
+    else
+      @logger.log @logger.levels.WARN, "Data channel '#{data_channel.label}' already exists"
+
+  _on_data_channel: (event) =>
+    data_channel = event.channel
+    @logger.log @logger.levels.DEBUG, "Data channel '#{data_channel.label}' was received", data_channel
+    @_setup_data_channel data_channel
+
+  _on_close: (event) =>
+    data_channel = event.target
+    @logger.log @logger.levels.DEBUG, "Data channel '#{data_channel.label}' was closed", data_channel
+    delete @data_channels[data_channel.label]
+
+  _on_error: (error) =>
+    @logger.log @logger.levels.ERROR, "Data channel error: #{error.message}", event
+
+  _on_message: (event) =>
+    @logger.log @logger.levels.DEBUG, "Received message on data channel: #{event.data}", event
+
+  _on_open: (event) =>
+    data_channel = event.target
+    @logger.log @logger.levels.DEBUG, "Data channel '#{data_channel.label}' was opened and can be used", data_channel
+
+
+  ###############################################################################
   # SDP handling
   ###############################################################################
 
@@ -498,10 +540,12 @@ class z.calling.entities.Flow
   @param restart [Boolean] Is ICE restart negotiation
   ###
   _create_offer: (restart) ->
+    @_initialize_data_channel 'wire'
+
     offer_options =
       iceRestart: restart
       offerToReceiveAudio: true
-      offerToReceiveVideo: true
+      offerToReceiveVideo: false
       voiceActivityDetection: true
 
     @logger.log @logger.levels.INFO, "Creating '#{z.calling.rtc.SDPType.OFFER}' for flow with '#{@remote_user.name()}'"

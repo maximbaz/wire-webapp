@@ -66,7 +66,7 @@ z.util.Environment = do ->
     supports_calling: ->
       return false if window.WebSocket is undefined
       return false if not navigator.mediaDevices?.getUserMedia
-      return false if @is_edge()
+      return @get_version() >= 14 if @is_edge()
       return @is_chrome() or @is_firefox() or @is_opera()
     supports_screen_sharing: ->
       return true if window.desktopCapturer
