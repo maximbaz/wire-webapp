@@ -349,6 +349,7 @@ class z.SystemNotification.SystemNotificationRepository
     return {
       title: if should_obfuscate then @_create_title_obfuscated() else @_create_title conversation_et, message_et
       options:
+        actions: @_create_options_actions message_et
         body: if should_obfuscate then @_create_body_obfuscated() else notification_body
         data: @_create_options_data conversation_et, message_et
         icon: if z.util.Environment.electron and z.util.Environment.os.mac then '' else window.notification_icon or '/image/logo/notification.png'
@@ -357,6 +358,19 @@ class z.SystemNotification.SystemNotificationRepository
       timeout: z.config.BROWSER_NOTIFICATION.TIMEOUT
       trigger: @_create_trigger conversation_et, message_et
     }
+
+  _create_options_actions: (message_et) ->
+    actions = []
+
+    if message_et.is_content()
+      actions.push action: z.system_notification.SystemNotificationAction.REACTION, title: 'z.message.ReactionType.LIKE' if message_et.is_reactable()
+      actions.push action: z.system_notification.SystemNotificationAction.REPLY, title: 'Reply'
+
+    else if message_et.is_call() and message_et.is_call_activation()
+      action: z.system_notification.SystemNotificationAction.CALL_ANSWER, title: 'Answer'
+      action: z.system_notification.SystemNotificationAction.CALL_IGNORE, title: 'Ignore'
+
+    return actions
 
   ###
   Selects the type of message that the notification body needs to be created for.
@@ -560,13 +574,27 @@ class z.SystemNotification.SystemNotificationRepository
     conversation_id = notification_content.options.data.conversation_id
     message_id = notification_content.options.data.message_id
     timeout_trigger_id = undefined
-    notification.onclick = =>
+    notification.onclick = (event) =>
+      notification.close()
       amplify.publish z.event.WebApp.SYSTEM_NOTIFICATION.CLICK
       window.focus()
       wire.app.view.content.multitasking.is_minimized true
-      notification_content.trigger()
+      if event?.action
+        switch event.action
+          when z.system_notification.SystemNotificationAction.CALL_ANSWER
+            amplify.publish z.event.WebApp.CALL.STATE.TOGGLE, conversation_id
+          when z.system_notification.SystemNotificationAction.CALL_IGNORE
+            amplify.publish z.event.WebApp.CALL.STATE.IGNORE, @ignore_call
+          when z.system_notification.SystemNotificationAction.REACTION
+            @conversation_repository.get_conversation_by_id conversation_id, (conversation_et) =>
+              @conversation_repository.get_message_in_conversation_by_id conversation_et, conversation_id
+              .then (message_et) =>
+                @conversation_repository.send_reaction conversation_et, message_et, z.message.ReactionType.LIKE
+          when z.system_notification.SystemNotificationAction.REPLY
+            notification_content.trigger()
+      else
+        notification_content.trigger()
       @logger.log @logger.levels.INFO, "Notification for '#{message_id} in '#{conversation_id}' closed by click."
-      notification.close()
     notification.onclose = =>
       window.clearTimeout timeout_trigger_id
       @notifications.splice @notifications.indexOf(notification), 1
