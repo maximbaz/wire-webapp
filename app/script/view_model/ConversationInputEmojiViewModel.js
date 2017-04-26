@@ -27,6 +27,20 @@ const EMOJI_LIST_OFFSET_LEFT = 8;
 const EMOJI_LIST_OFFSET_TOP = 8;
 const QUERY_MIN_LENGTH = 1;
 
+// DO NOT USE COLON WITH LOWERCASE LETTERS IN THE KEYS, or you will prevent searching emojis.
+// For example, while :D should be replaced with unicode symbol, :d should allow searching for :dancer:
+const EMOJI_INLINE_REPLACEMENT = {
+  ':(': 'slight frown',
+  ':)': 'slight smile',
+  ':*': 'kissing heart',
+  ':/': 'confused',
+  ':D': 'smile',
+  ':P': 'stuck out tongue',
+  ';)': 'wink',
+  ';P': 'stuck out tongue winking eye',
+};
+const EMOJI_INLINE_MAX_LENGTH = Math.max(...Object.keys(EMOJI_INLINE_REPLACEMENT).map((key) => key.length));
+
 z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewModel {
   constructor() {
     const emoji_list_class = 'conversation-input-emoji-list';
@@ -38,9 +52,9 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
     $(document).on('click', `.${emoji_list_class}`, (event) => {
       const clicked = $(event.target);
-      const emoji = clicked.hasClass('emoji') ? clicked : clicked.closest('.emoji');
+      const emoji_line = clicked.hasClass('emoji') ? clicked : clicked.closest('.emoji');
       const input = $('#conversation-input-text')[0];
-      this.enter_emoji(input, emoji);
+      this.enter_emoji_line(input, emoji_line);
       return false;
     });
 
@@ -98,7 +112,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
         break;
       case z.util.KEYCODE.ENTER:
       case z.util.KEYCODE.TAB:
-        this.enter_emoji(event.target, this.emoji_list.find('.emoji.selected'));
+        this.enter_emoji_line(event.target, this.emoji_list.find('.emoji.selected'));
         break;
       default:
         return false;
@@ -109,24 +123,47 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
   }
 
   on_input_key_up(data, event) {
-    if (!this.suppress_key_up) {
-      const input = event.target;
-      const text = input.value || '';
+    if (this.suppress_key_up) {
+      this.suppress_key_up = false;
+      return true;
+    }
 
-      if (text[input.selectionStart - 1] === ':') {
-        this.emoji_start_pos = input.selectionStart;
+    const input = event.target;
+
+    if (this.try_replace_inline_emoji(input)) {
+      return true;
+    }
+
+    const text = input.value || '';
+    if (text[input.selectionStart - 1] === ':') {
+      this.emoji_start_pos = input.selectionStart;
+      this.update_emoji_list(input);
+    } else if (this.emoji_start_pos !== -1) {
+      if (input.selectionStart < this.emoji_start_pos || text[this.emoji_start_pos - 1] !== ':') {
+        this.remove_emoji_list();
+      } else {
         this.update_emoji_list(input);
-      } else if (this.emoji_start_pos !== -1) {
-        if (input.selectionStart < this.emoji_start_pos || text[this.emoji_start_pos - 1] !== ':') {
-          this.remove_emoji_list();
-        } else {
-          this.update_emoji_list(input);
-        }
       }
     }
 
-    this.suppress_key_up = false;
     return true;
+  }
+
+  try_replace_inline_emoji(input) {
+    const text = input.value || '';
+    const text_until_cursor = text.substring(Math.max(0, input.selectionStart - EMOJI_INLINE_MAX_LENGTH), input.selectionStart);
+
+    for (const shortcut in EMOJI_INLINE_REPLACEMENT) {
+      if (text_until_cursor.endsWith(shortcut)) {
+        const emoji = this.emoji_dict[EMOJI_INLINE_REPLACEMENT[shortcut]];
+        if (emoji) {
+          this.emoji_start_pos = input.selectionStart - shortcut.length + 1;
+          this.enter_emoji(input, emoji.icon);
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   update_emoji_list(input) {
@@ -183,16 +220,20 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
     this.emoji_list.find(`.emoji:nth(${new_selection})`).addClass('selected');
   }
 
-  enter_emoji(input, emoji_line) {
-    const emoji = emoji_line.find('.symbol').text();
+  enter_emoji_line(input, emoji_line) {
+    const emoji_icon = emoji_line.find('.symbol').text();
     const emoji_name = emoji_line
       .find('.name')
       .text()
       .toLowerCase();
-    this.inc_usage_count(emoji_name);
+    this.enter_emoji(input, emoji_icon);
+    this.inc_usage_count(emoji_name); // only emojis selected from the list should affect the count
+  }
+
+  enter_emoji(input, emoji_icon) {
     const text_before_emoji = input.value.substr(0, this.emoji_start_pos - 1);
     const text_after_emoji = input.value.substr(input.selectionStart);
-    input.value = `${text_before_emoji}${emoji}${text_after_emoji}`;
+    input.value = `${text_before_emoji}${emoji_icon}${text_after_emoji}`;
     input.setSelectionRange(this.emoji_start_pos, this.emoji_start_pos);
     this.remove_emoji_list();
     $(input).change();
