@@ -155,7 +155,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
     for (const shortcut in EMOJI_INLINE_REPLACEMENT) {
       if (text_until_cursor.endsWith(shortcut)) {
-        const emoji = this.emoji_dict[EMOJI_INLINE_REPLACEMENT[shortcut]];
+        const emoji = this.emojis.find((candidate) => candidate.name === EMOJI_INLINE_REPLACEMENT[shortcut]);
         if (emoji) {
           this.emoji_start_pos = input.selectionStart - shortcut.length + 1;
           this.enter_emoji(input, emoji.icon);
