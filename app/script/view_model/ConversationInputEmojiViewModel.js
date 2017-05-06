@@ -27,30 +27,86 @@ const EMOJI_LIST_OFFSET_LEFT = 8;
 const EMOJI_LIST_OFFSET_TOP = 8;
 const QUERY_MIN_LENGTH = 1;
 
-// DO NOT USE COLON WITH LOWERCASE LETTERS IN THE KEYS, or you will prevent searching emojis.
+// DO NOT USE COLON WITH LOWERCASE LETTERS IN THE SHORTCUTS, or you will prevent searching emojis.
 // For example, while :D should be replaced with unicode symbol, :d should allow searching for :dancer:
-const EMOJI_INLINE_REPLACEMENT = {
-  ':(': 'slight frown',
-  ':)': 'slight smile',
-  ':*': 'kissing heart',
-  ':/': 'confused',
-  ':D': 'smile',
-  ':P': 'stuck out tongue',
-  ';)': 'wink',
-  ';P': 'stuck out tongue winking eye',
-};
-const EMOJI_INLINE_MAX_LENGTH = Math.max(...Object.keys(EMOJI_INLINE_REPLACEMENT).map((key) => key.length));
+/* eslint-disable sort-keys, no-multi-spaces */
+const EMOJI_INLINE_REPLACEMENT = [
+  {'shortcut': ':)',    'name': 'slight smile'},
+  {'shortcut': ':-)',   'name': 'slight smile'},
+  {'shortcut': ':D',    'name': 'smile'},
+  {'shortcut': ':-D',   'name': 'smile'},
+  {'shortcut': ':-d',   'name': 'grinning'},
+  {'shortcut': 'B-)',   'name': 'sunglasses'},
+  {'shortcut': 'b-)',   'name': 'sunglasses'},
+  {'shortcut': '8-)',   'name': 'sunglasses'},
+  {'shortcut': ':(',    'name': 'disappointed'},
+  {'shortcut': ':-(',   'name': 'disappointed'},
+  {'shortcut': ';)',    'name': 'wink'},
+  {'shortcut': ';-)',   'name': 'wink'},
+  {'shortcut': ';-]',   'name': 'wink'},
+  {'shortcut': ';]',    'name': 'wink'},
+  {'shortcut': ':/',    'name': 'confused'},
+  {'shortcut': ':-/',   'name': 'confused'},
+  {'shortcut': ':P',    'name': 'stuck out tongue'},
+  {'shortcut': ':-P',   'name': 'stuck out tongue'},
+  {'shortcut': ':-p',   'name': 'stuck out tongue'},
+  {'shortcut': ';P',    'name': 'stuck out tongue winking eye'},
+  {'shortcut': ';-P',   'name': 'stuck out tongue winking eye'},
+  {'shortcut': ';-p',   'name': 'stuck out tongue winking eye'},
+  {'shortcut': ':O',    'name': 'open mouth'},
+  {'shortcut': ':-o',   'name': 'open mouth'},
+  {'shortcut': 'O:)',   'name': 'innocent'},
+  {'shortcut': 'O:-)',  'name': 'innocent'},
+  {'shortcut': 'o:)',   'name': 'innocent'},
+  {'shortcut': 'o:-)',  'name': 'innocent'},
+  {'shortcut': ';^)',   'name': 'smirk'},
+  {'shortcut': ':@',    'name': 'angry'},
+  {'shortcut': '>:(',   'name': 'rage'},
+  {'shortcut': '}:-)',  'name': 'smiling imp'},
+  {'shortcut': '}:)',   'name': 'smiling imp'},
+  {'shortcut': '3:-)',  'name': 'smiling imp'},
+  {'shortcut': '3:)',   'name': 'smiling imp'},
+  {'shortcut': ':\'-(', 'name': 'cry'},
+  {'shortcut': ':\'(',  'name': 'cry'},
+  {'shortcut': ';(',    'name': 'cry'},
+  {'shortcut': ':\'-)', 'name': 'joy'},
+  {'shortcut': ':\')',  'name': 'joy'},
+  {'shortcut': ':*',    'name': 'kissing heart'},
+  {'shortcut': ':^*',   'name': 'kissing heart'},
+  {'shortcut': ':-*',   'name': 'kissing heart'},
+  {'shortcut': ':-|',   'name': 'neutral face'},
+  {'shortcut': ':|',    'name': 'neutral face'},
+  {'shortcut': ':$',    'name': 'flushed'},
+  {'shortcut': ':-X',   'name': 'no mouth'},
+  {'shortcut': ':X',    'name': 'no mouth'},
+  {'shortcut': ':-#',   'name': 'no mouth'},
+  {'shortcut': ':#',    'name': 'no mouth'},
+  {'shortcut': '\\o/',  'name': 'raised hands'},
+  {'shortcut': '<3',    'name': 'heart'},
+  {'shortcut': '</3',   'name': 'broken heart'},
+].sort((first, second) => {
+  if (first.shortcut.length !== second.shortcut.length) {
+    return second.shortcut.length - first.shortcut.length;
+  }
+  return first.shortcut.localeCompare(second.shortcut);
+});
+/* eslint-enable sort-keys, no-multi-spaces */
+
+const EMOJI_INLINE_MAX_LENGTH = Math.max(...EMOJI_INLINE_REPLACEMENT.map((item) => item.shortcut.length));
 
 z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewModel {
   constructor() {
-    const emoji_list_class = 'conversation-input-emoji-list';
+    const emoji_div_class = 'conversation-input-emoji-list';
 
-    this.emojis = [];
-    this.emoji_list = $(`<div class='${emoji_list_class}' />`);
+    this.emoji_list = [];
+    this.emoji_dict = {};
+
+    this.emoji_div = $(`<div class='${emoji_div_class}' />`);
     this.emoji_start_pos = -1;
+    this.emoji_end_pos = -1;
     this.emoji_usage_count = z.util.StorageUtil.get_value(z.storage.StorageKey.CONVERSATION.EMOJI_USAGE_COUNT) || {};
 
-    $(document).on('click', `.${emoji_list_class}`, (event) => {
+    $(document).on('click', `.${emoji_div_class}`, (event) => {
       const clicked = $(event.target);
       const emoji_line = clicked.hasClass('emoji') ? clicked : clicked.closest('.emoji');
       const input = $('#conversation-input-text')[0];
@@ -58,8 +114,8 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
       return false;
     });
 
-    $(document).on('mouseenter', `.${emoji_list_class} .emoji`, (event) => {
-      $(`.${emoji_list_class} .emoji`).removeClass('selected');
+    $(document).on('mouseenter', `.${emoji_div_class} .emoji`, (event) => {
+      $(`.${emoji_div_class} .emoji`).removeClass('selected');
       $(event.currentTarget).addClass('selected');
     });
 
@@ -82,7 +138,8 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
                 .slice(1, -1)
                 .replace(/_/g, ' ')
                 .toLowerCase();
-              this.emojis.push({icon, name});
+              this.emoji_list.push({icon, name});
+              this.emoji_dict[name] = icon;
             }
           });
         }
@@ -97,7 +154,24 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
   }
 
   on_input_key_down(data, event) {
-    if (this.emoji_list.is(':hidden')) {
+    // Handling inline emoji
+    switch (event.keyCode) {
+      case z.util.KEYCODE.ENTER:
+        if (this.try_replace_inline_emoji(event.target)) {
+          return false;
+        }
+        break;
+      case z.util.KEYCODE.TAB:
+        if (this.try_replace_inline_emoji(event.target)) {
+          return true;
+        }
+        break;
+      default:
+        break;
+    }
+
+    // Handling emoji popup
+    if (this.emoji_div.is(':hidden')) {
       return false;
     }
 
@@ -112,7 +186,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
         break;
       case z.util.KEYCODE.ENTER:
       case z.util.KEYCODE.TAB:
-        this.enter_emoji_line(event.target, this.emoji_list.find('.emoji.selected'));
+        this.enter_emoji_line(event.target, this.emoji_div.find('.emoji.selected'));
         break;
       default:
         return false;
@@ -130,8 +204,10 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
     const input = event.target;
 
-    if (this.try_replace_inline_emoji(input)) {
-      return true;
+    if (event.keyCode === z.util.KEYCODE.SPACE) {
+      if (this.try_replace_inline_emoji(input)) {
+        return true;
+      }
     }
 
     const text = input.value || '';
@@ -151,14 +227,20 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
   try_replace_inline_emoji(input) {
     const text = input.value || '';
-    const text_until_cursor = text.substring(Math.max(0, input.selectionStart - EMOJI_INLINE_MAX_LENGTH), input.selectionStart);
+    let text_until_cursor = text.substring(0, input.selectionStart);
+    const num_of_trailing_whitespaces = text_until_cursor.match(/\s*$/)[0].length;
+    const emoji_end_pos = input.selectionStart - num_of_trailing_whitespaces;
+    text_until_cursor = text.substring(Math.max(0, emoji_end_pos - EMOJI_INLINE_MAX_LENGTH - 1), emoji_end_pos);
 
-    for (const shortcut in EMOJI_INLINE_REPLACEMENT) {
-      if (text_until_cursor.endsWith(shortcut)) {
-        const emoji = this.emojis.find((candidate) => candidate.name === EMOJI_INLINE_REPLACEMENT[shortcut]);
-        if (emoji) {
-          this.emoji_start_pos = input.selectionStart - shortcut.length + 1;
-          this.enter_emoji(input, emoji.icon);
+    for (const replacement of EMOJI_INLINE_REPLACEMENT) {
+      const escaped_shortcut = replacement.shortcut.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+      const valid_inline_emoji_regex = new RegExp(`^${escaped_shortcut}|\\s${escaped_shortcut}`);
+      if (valid_inline_emoji_regex.test(text_until_cursor)) {
+        const icon = this.emoji_dict[replacement.name];
+        if (icon) {
+          this.emoji_start_pos = emoji_end_pos - replacement.shortcut.length + 1;
+          this.emoji_end_pos = this.emoji_start_pos + replacement.shortcut.length - 1;
+          this.enter_emoji(input, icon, num_of_trailing_whitespaces);
           return true;
         }
       }
@@ -171,12 +253,12 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
       return;
     }
 
-    const query = input.value.substr(this.emoji_start_pos, input.selectionStart - this.emoji_start_pos).toLowerCase();
-    if (query.length < QUERY_MIN_LENGTH || query[0] === ' ' || this.emojis.length === 0) {
-      this.emoji_list.remove();
+    const query = input.value.substr(this.emoji_start_pos, input.selectionStart - this.emoji_start_pos);
+    if (query.length < QUERY_MIN_LENGTH || query[0] === ' ' || /\s{2,}/.test(query) || this.emoji_list.length === 0) {
+      this.emoji_div.remove();
     } else {
       const query_words = query.split(' ');
-      const emoji_matched = this.emojis
+      const emoji_matched = this.emoji_list
         .filter((emoji) => {
           const emoji_name_words = emoji.name.split(' ');
           return query_words.every((query_word) => emoji_name_words.some((emoji_name_word) => emoji_name_word.startsWith(query_word)));
@@ -197,27 +279,27 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
         this.close_emoji_list();
       } else {
         window.addEventListener('click', this.bound_remove_emoji_list);
-        this.emoji_list
+        this.emoji_div
           .html(emoji_matched)
           .appendTo('body')
           .show();
-        this.emoji_list.find('.emoji:nth(0)').addClass('selected');
+        this.emoji_div.find('.emoji:nth(0)').addClass('selected');
 
         const pos = this.get_cursor_pixel_pos(input);
-        const top = pos.top - this.emoji_list.height() - EMOJI_LIST_OFFSET_TOP;
+        const top = pos.top - this.emoji_div.height() - EMOJI_LIST_OFFSET_TOP;
         const left = pos.left - EMOJI_LIST_OFFSET_LEFT;
 
-        this.emoji_list.css('left', left);
-        this.emoji_list.css('top', top);
+        this.emoji_div.css('left', left);
+        this.emoji_div.css('top', top);
       }
     }
   }
 
   rotate_emoji_list(backward) {
-    const previous = this.emoji_list.find('.emoji.selected');
-    const new_selection = (previous.index() + (backward ? -1 : 1)) % this.emoji_list.find('.emoji').length;
+    const previous = this.emoji_div.find('.emoji.selected');
+    const new_selection = (previous.index() + (backward ? -1 : 1)) % this.emoji_div.find('.emoji').length;
     previous.removeClass('selected');
-    this.emoji_list.find(`.emoji:nth(${new_selection})`).addClass('selected');
+    this.emoji_div.find(`.emoji:nth(${new_selection})`).addClass('selected');
   }
 
   enter_emoji_line(input, emoji_line) {
@@ -226,15 +308,16 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
       .find('.name')
       .text()
       .toLowerCase();
-    this.enter_emoji(input, emoji_icon);
+    this.emoji_end_pos = input.selectionStart;
+    this.enter_emoji(input, emoji_icon, 0);
     this.inc_usage_count(emoji_name); // only emojis selected from the list should affect the count
   }
 
-  enter_emoji(input, emoji_icon) {
+  enter_emoji(input, emoji_icon, cursor_offset) {
     const text_before_emoji = input.value.substr(0, this.emoji_start_pos - 1);
-    const text_after_emoji = input.value.substr(input.selectionStart);
+    const text_after_emoji = input.value.substr(this.emoji_end_pos);
     input.value = `${text_before_emoji}${emoji_icon}${text_after_emoji}`;
-    input.setSelectionRange(this.emoji_start_pos, this.emoji_start_pos);
+    input.setSelectionRange(this.emoji_start_pos + cursor_offset, this.emoji_start_pos + cursor_offset);
     this.remove_emoji_list();
     $(input).change();
     $(input).focus();
@@ -242,12 +325,13 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
   close_emoji_list() {
     window.removeEventListener('click', this.bound_remove_emoji_list);
-    this.emoji_list.remove();
+    this.emoji_div.remove();
   }
 
   remove_emoji_list() {
     this.close_emoji_list();
     this.emoji_start_pos = -1;
+    this.emoji_end_pos = -1;
   }
 
   get_cursor_pixel_pos(input) {
