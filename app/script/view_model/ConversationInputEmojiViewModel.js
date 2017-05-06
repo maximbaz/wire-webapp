@@ -110,7 +110,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
       const clicked = $(event.target);
       const emoji_line = clicked.hasClass('emoji') ? clicked : clicked.closest('.emoji');
       const input = $('#conversation-input-text')[0];
-      this.enter_emoji_line(input, emoji_line);
+      this._enter_emoji_popup_line(input, emoji_line);
       return false;
     });
 
@@ -145,24 +145,24 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
         }
       });
 
-    this.bound_remove_emoji_list = this.remove_emoji_list.bind(this);
+    this.bound_remove_emoji_list = this.remove_emoji_popup.bind(this);
     this._init_subscriptions();
   }
 
-  _init_subscriptions() {
-    amplify.subscribe(z.event.WebApp.CONTENT.SWITCH, () => this.remove_emoji_list());
-  }
-
   on_input_key_down(data, event) {
+    const input = event.target;
+
     // Handling inline emoji
     switch (event.keyCode) {
       case z.util.KEYCODE.ENTER:
-        if (this.try_replace_inline_emoji(event.target)) {
+      case z.util.KEYCODE.SPACE:
+        if (this._try_replace_inline_emoji(input)) {
           return false;
         }
         break;
       case z.util.KEYCODE.TAB:
-        if (this.try_replace_inline_emoji(event.target)) {
+        if (this._try_replace_inline_emoji(input)) {
+          event.preventDefault();
           return true;
         }
         break;
@@ -177,16 +177,16 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
 
     switch (event.keyCode) {
       case z.util.KEYCODE.ESC:
-        this.remove_emoji_list();
+        this.remove_emoji_popup();
         break;
       case z.util.KEYCODE.ARROW_UP:
       case z.util.KEYCODE.ARROW_DOWN:
-        this.rotate_emoji_list(event.keyCode === z.util.KEYCODE.ARROW_UP);
+        this._rotate_emoji_popup(event.keyCode === z.util.KEYCODE.ARROW_UP);
         this.suppress_key_up = true;
         break;
       case z.util.KEYCODE.ENTER:
       case z.util.KEYCODE.TAB:
-        this.enter_emoji_line(event.target, this.emoji_div.find('.emoji.selected'));
+        this._enter_emoji_popup_line(input, this.emoji_div.find('.emoji.selected'));
         break;
       default:
         return false;
@@ -203,34 +203,28 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
     }
 
     const input = event.target;
-
-    if (event.keyCode === z.util.KEYCODE.SPACE) {
-      if (this.try_replace_inline_emoji(input)) {
-        return true;
-      }
-    }
-
     const text = input.value || '';
     if (text[input.selectionStart - 1] === ':') {
       this.emoji_start_pos = input.selectionStart;
-      this.update_emoji_list(input);
+      this._update_emoji_popup(input);
     } else if (this.emoji_start_pos !== -1) {
       if (input.selectionStart < this.emoji_start_pos || text[this.emoji_start_pos - 1] !== ':') {
-        this.remove_emoji_list();
+        this.remove_emoji_popup();
       } else {
-        this.update_emoji_list(input);
+        this._update_emoji_popup(input);
       }
     }
 
     return true;
   }
 
-  try_replace_inline_emoji(input) {
+  _init_subscriptions() {
+    amplify.subscribe(z.event.WebApp.CONTENT.SWITCH, () => this.remove_emoji_popup());
+  }
+
+  _try_replace_inline_emoji(input) {
     const text = input.value || '';
-    let text_until_cursor = text.substring(0, input.selectionStart);
-    const num_of_trailing_whitespaces = text_until_cursor.match(/\s*$/)[0].length;
-    const emoji_end_pos = input.selectionStart - num_of_trailing_whitespaces;
-    text_until_cursor = text.substring(Math.max(0, emoji_end_pos - EMOJI_INLINE_MAX_LENGTH - 1), emoji_end_pos);
+    const text_until_cursor = text.substring(Math.max(0, input.selectionStart - EMOJI_INLINE_MAX_LENGTH - 1), input.selectionStart);
 
     for (const replacement of EMOJI_INLINE_REPLACEMENT) {
       const escaped_shortcut = replacement.shortcut.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
@@ -238,9 +232,8 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
       if (valid_inline_emoji_regex.test(text_until_cursor)) {
         const icon = this.emoji_dict[replacement.name];
         if (icon) {
-          this.emoji_start_pos = emoji_end_pos - replacement.shortcut.length + 1;
-          this.emoji_end_pos = this.emoji_start_pos + replacement.shortcut.length - 1;
-          this.enter_emoji(input, icon, num_of_trailing_whitespaces);
+          this.emoji_start_pos = input.selectionStart - replacement.shortcut.length + 1;
+          this._enter_emoji(input, icon);
           return true;
         }
       }
@@ -248,7 +241,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
     return false;
   }
 
-  update_emoji_list(input) {
+  _update_emoji_popup(input) {
     if (!input.value) {
       return;
     }
@@ -263,9 +256,10 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
           const emoji_name_words = emoji.name.split(' ');
           return query_words.every((query_word) => emoji_name_words.some((emoji_name_word) => emoji_name_word.startsWith(query_word)));
         })
+        .filter((emoji, index, array) => array.find((item) => item.icon === emoji.icon))
         .sort((emoji_a, emoji_b) => {
-          const usage_count_a = this.get_usage_count(emoji_a.name);
-          const usage_count_b = this.get_usage_count(emoji_b.name);
+          const usage_count_a = this._get_usage_count(emoji_a.name);
+          const usage_count_b = this._get_usage_count(emoji_b.name);
           if (usage_count_a === usage_count_b) {
             return z.util.StringUtil.sort_by_priority(emoji_a.name, emoji_b.name, query);
           }
@@ -276,7 +270,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
         .join('');
 
       if (emoji_matched === '') {
-        this.close_emoji_list();
+        this._close_emoji_popup();
       } else {
         window.addEventListener('click', this.bound_remove_emoji_list);
         this.emoji_div
@@ -285,7 +279,7 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
           .show();
         this.emoji_div.find('.emoji:nth(0)').addClass('selected');
 
-        const pos = this.get_cursor_pixel_pos(input);
+        const pos = this._get_cursor_pixel_pos(input);
         const top = pos.top - this.emoji_div.height() - EMOJI_LIST_OFFSET_TOP;
         const left = pos.left - EMOJI_LIST_OFFSET_LEFT;
 
@@ -295,46 +289,46 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
     }
   }
 
-  rotate_emoji_list(backward) {
+  _rotate_emoji_popup(backward) {
     const previous = this.emoji_div.find('.emoji.selected');
     const new_selection = (previous.index() + (backward ? -1 : 1)) % this.emoji_div.find('.emoji').length;
     previous.removeClass('selected');
     this.emoji_div.find(`.emoji:nth(${new_selection})`).addClass('selected');
   }
 
-  enter_emoji_line(input, emoji_line) {
+  _enter_emoji_popup_line(input, emoji_line) {
     const emoji_icon = emoji_line.find('.symbol').text();
     const emoji_name = emoji_line
       .find('.name')
       .text()
       .toLowerCase();
     this.emoji_end_pos = input.selectionStart;
-    this.enter_emoji(input, emoji_icon, 0);
-    this.inc_usage_count(emoji_name); // only emojis selected from the list should affect the count
+    this._enter_emoji(input, emoji_icon);
+    this._inc_usage_count(emoji_name); // only emojis selected from the list should affect the count
   }
 
-  enter_emoji(input, emoji_icon, cursor_offset) {
+  _enter_emoji(input, emoji_icon) {
     const text_before_emoji = input.value.substr(0, this.emoji_start_pos - 1);
-    const text_after_emoji = input.value.substr(this.emoji_end_pos);
+    const text_after_emoji = input.value.substr(input.selectionStart);
     input.value = `${text_before_emoji}${emoji_icon}${text_after_emoji}`;
-    input.setSelectionRange(this.emoji_start_pos + cursor_offset, this.emoji_start_pos + cursor_offset);
-    this.remove_emoji_list();
+    input.setSelectionRange(this.emoji_start_pos, this.emoji_start_pos);
+    this.remove_emoji_popup();
     $(input).change();
     $(input).focus();
   }
 
-  close_emoji_list() {
+  _close_emoji_popup() {
     window.removeEventListener('click', this.bound_remove_emoji_list);
     this.emoji_div.remove();
   }
 
-  remove_emoji_list() {
-    this.close_emoji_list();
+  remove_emoji_popup() {
+    this._close_emoji_popup();
     this.emoji_start_pos = -1;
     this.emoji_end_pos = -1;
   }
 
-  get_cursor_pixel_pos(input) {
+  _get_cursor_pixel_pos(input) {
     const css = getComputedStyle(input);
     const ibr = input.getBoundingClientRect();
     const mask = document.createElement('div');
@@ -369,12 +363,12 @@ z.ViewModel.ConversationInputEmojiViewModel = class ConversationInputEmojiViewMo
     return sbr;
   }
 
-  get_usage_count(emoji_name) {
+  _get_usage_count(emoji_name) {
     return this.emoji_usage_count[emoji_name] || 0;
   }
 
-  inc_usage_count(emoji_name) {
-    this.emoji_usage_count[emoji_name] = this.get_usage_count(emoji_name) + 1;
+  _inc_usage_count(emoji_name) {
+    this.emoji_usage_count[emoji_name] = this._get_usage_count(emoji_name) + 1;
     z.util.StorageUtil.set_value(z.storage.StorageKey.CONVERSATION.EMOJI_USAGE_COUNT, this.emoji_usage_count);
   }
 };
