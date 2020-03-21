@@ -109,7 +109,7 @@ export class MediaConstraintsHandler {
     isGroup: boolean = false,
   ): MediaStreamConstraints {
     const currentDeviceId = this.currentDeviceId;
-    const mode = isGroup ? VIDEO_QUALITY_MODE.GROUP : VIDEO_QUALITY_MODE.MOBILE;
+    const mode = VIDEO_QUALITY_MODE.FULL_HD;
 
     return {
       audio: requestAudio ? this.getAudioStreamConstraints(currentDeviceId.audioInput()) : undefined,
