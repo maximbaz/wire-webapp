@@ -73,7 +73,7 @@ export class MediaConstraintsHandler {
         VIDEO: {
           [VIDEO_QUALITY_MODE.FULL_HD]: {
             frameRate: 30,
-            height: 1080,
+            height: 1200,
             width: 1920,
           },
           [VIDEO_QUALITY_MODE.GROUP]: {
